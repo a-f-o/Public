@@ -7,6 +7,7 @@
 #include <iostream>
 #include <list>
 #include <pthread.h>
+#include <unistd.h>
 
 //#############################################################################
 
@@ -376,15 +377,6 @@ private:
 
 //#############################################################################
 
-static int64_t currentTime()
-{
-    struct timespec nowS;
-    clock_gettime(CLOCK_MONOTONIC, &nowS);
-    return (nowS.tv_sec * 1000000000LL + nowS.tv_nsec);
-}
-
-//#############################################################################
-
 constexpr static int NumProducers = 24;
 constexpr static size_t QueueCapacity = 0x10000;
 constexpr static int64_t RunTimeInSeconds = 10;
@@ -507,14 +499,12 @@ static void testQ()
     for (int idx = 0; idx < NumProducers; ++idx) {
         pt[idx] = new ProducerThread<TQueue>(idx, queue);
     }
+    usleep(1000LL * 1000LL); // wait for thread to wake up ... ok, this is shitty code
 
-    const int64_t startT = currentTime();
-    const int64_t endT = startT + RunTimeInSeconds * 1000LL * 1000LL * 1000LL; // 10s
     g_running = true;
-    while (currentTime() < endT) {
-
-    }
+    usleep(RunTimeInSeconds * 1000LL * 1000LL);
     g_running = false;
+    
     delete ct;
     for (auto &t : pt) delete t;
 }
@@ -524,7 +514,7 @@ int main(int, char**)
     std::cout << "StdList/Mutex"              << std::endl; testQ< StdListQueue<Item> >(); std::cout << std::endl;
     std::cout << "Unlocked (not thread safe)" << std::endl; testQ< NoLockQueue <Item> >(); std::cout << std::endl;
     std::cout << "Mutex"                      << std::endl; testQ< MutexQueue  <Item> >(); std::cout << std::endl;
-    std::cout << "SpinLock"                   << std::endl; testQ< SpinQueue   <Item> >(); std::cout << std::endl;
+//  std::cout << "SpinLock"                   << std::endl; testQ< SpinQueue   <Item> >(); std::cout << std::endl;
     std::cout << "LockFree"                   << std::endl; testQ< LFQueue     <Item> >(); std::cout << std::endl;
     std::cout << "LockFree/StdAtomics"        << std::endl; testQ< LFAQueue    <Item> >(); std::cout << std::endl;
     return 0;
