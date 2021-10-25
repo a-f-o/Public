@@ -87,7 +87,7 @@ public:
     Thread()
     {
         pthread_attr_init(&m_attr);
-        pthread_create(&m_thread, &m_attr, func, static_cast<void*>(this));
+        pthread_create(&m_thread, &m_attr, &func, static_cast<void*>(this));
     }
     ~Thread()
     {
@@ -98,6 +98,10 @@ public:
     {
         return (pthread_join(m_thread, nullptr) == 0);
     }
+    inline bool started() const
+    {
+        return m_started;
+    }
 
 protected:
     virtual void run() = 0;
@@ -105,13 +109,16 @@ protected:
 private:
     pthread_t m_thread = { };
     pthread_attr_t m_attr = { };
+    std::atomic<bool> m_started = { };
 
     static void* func(void *arg)
     {
         Thread *t = static_cast<Thread*>(arg);
+        t->m_started = true;
         t->run();
         return nullptr;
     }
+
 };
 
 //#############################################################################
@@ -341,7 +348,7 @@ public:
         }
         // the order of the following 2 lines can be swapped without generating a difference, so __ATOMIC_RELAXED is fine
         const size_t idx = m_widx++ & m_capacityMask;
-       m_widx &= m_capacityMask;
+        m_widx &= m_capacityMask;
         m_buffer[idx] = t;
         m_stat[idx] = true;
         return true;
@@ -377,10 +384,10 @@ private:
 
 //#############################################################################
 
-constexpr static int NumProducers = 24;
-constexpr static size_t QueueCapacity = 0x10000;
+constexpr static int NumProducers = 10;
+constexpr static size_t QueueCapacity = 0x1000;
 constexpr static int64_t RunTimeInSeconds = 10;
-constexpr static int64_t PayloadSize = 0x10000;
+constexpr static int64_t PayloadSize = 0x100000;
 
 std::atomic<bool> g_running = { };
 
@@ -494,17 +501,33 @@ static void testQ()
 {
     TQueue queue(QueueCapacity);
     g_running = false;
+
+    // create threads
     ConsumerThread<TQueue> *ct = new ConsumerThread<TQueue>(queue);
     ProducerThread<TQueue> *pt[NumProducers];
     for (int idx = 0; idx < NumProducers; ++idx) {
         pt[idx] = new ProducerThread<TQueue>(idx, queue);
     }
-    usleep(1000LL * 1000LL); // wait for thread to wake up ... ok, this is shitty code
 
+    // wait until all threads have started
+    constexpr int NumThreadsOverall = NumProducers + 1;
+    for (;;) {
+        int numStarted = ct->started();
+        for (int idx = 0; idx < NumProducers; ++idx) {
+            numStarted += pt[idx]->started();
+        }
+        if (numStarted == NumThreadsOverall) {
+            break;
+        }
+        usleep(100);
+    }
+
+    // run the test
     g_running = true;
     usleep(RunTimeInSeconds * 1000LL * 1000LL);
     g_running = false;
-    
+
+    // cleanup
     delete ct;
     for (auto &t : pt) delete t;
 }
@@ -514,7 +537,7 @@ int main(int, char**)
     std::cout << "StdList/Mutex"              << std::endl; testQ< StdListQueue<Item> >(); std::cout << std::endl;
     std::cout << "Unlocked (not thread safe)" << std::endl; testQ< NoLockQueue <Item> >(); std::cout << std::endl;
     std::cout << "Mutex"                      << std::endl; testQ< MutexQueue  <Item> >(); std::cout << std::endl;
-//  std::cout << "SpinLock"                   << std::endl; testQ< SpinQueue   <Item> >(); std::cout << std::endl;
+    std::cout << "SpinLock"                   << std::endl; testQ< SpinQueue   <Item> >(); std::cout << std::endl;
     std::cout << "LockFree"                   << std::endl; testQ< LFQueue     <Item> >(); std::cout << std::endl;
     std::cout << "LockFree/StdAtomics"        << std::endl; testQ< LFAQueue    <Item> >(); std::cout << std::endl;
     return 0;
