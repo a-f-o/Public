@@ -9,6 +9,8 @@
 #include <pthread.h>
 #include <unistd.h>
 
+#include <boost/lockfree/queue.hpp>
+
 //#############################################################################
 
 class NoLock
@@ -257,6 +259,44 @@ public:
 //#############################################################################
 
 template<class T>
+class BoostLFQueue
+{
+public:
+    BoostLFQueue(const size_t capacity) : m_queue(capacity)
+    {
+    }
+    ~BoostLFQueue()
+    {
+    }
+    inline bool write(const T& t)
+    {
+        if (m_queue.push(t)) {
+            ++m_size;
+            return true;
+        }
+        return false;
+    }
+    inline bool read(T &t)
+    {
+        if (m_queue.pop(t)) {
+            --m_size;
+            return true;
+        }
+        return false;
+    }
+    inline size_t size() const
+    {
+        return m_size;
+    }
+    
+private:
+    boost::lockfree::queue<T> m_queue;
+    std::atomic<size_t> m_size { 0 };
+};
+
+//#############################################################################
+
+template<class T>
 class LFQueue
 {
 public:
@@ -387,7 +427,7 @@ private:
 constexpr static int NumProducers = 10;
 constexpr static size_t QueueCapacity = 0x1000;
 constexpr static int64_t RunTimeInSeconds = 10;
-constexpr static int64_t PayloadSize = 0x100000;
+constexpr static int64_t PayloadSize = 0x10000;
 
 std::atomic<bool> g_running = { };
 
@@ -534,6 +574,7 @@ static void testQ()
 
 int main(int, char**)
 {
+    std::cout << "boost::lockfree::queue"     << std::endl; testQ< BoostLFQueue<Item> >(); std::cout << std::endl;
     std::cout << "StdList/Mutex"              << std::endl; testQ< StdListQueue<Item> >(); std::cout << std::endl;
     std::cout << "Unlocked (not thread safe)" << std::endl; testQ< NoLockQueue <Item> >(); std::cout << std::endl;
     std::cout << "Mutex"                      << std::endl; testQ< MutexQueue  <Item> >(); std::cout << std::endl;
